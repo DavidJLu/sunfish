@@ -449,7 +449,50 @@ def main():
             break
 
         # Fire up the engine to look for a move.
+        
+        #
+        cstart = time.clock()
+        tstart = time.time()
+
         move, score = searcher.search(pos, secs=2)
+        
+        print(time.clock() - cstart, "seconds process time")
+        print(time.time() - tstart, "seconds real time\n")
+
+        total_pos_examined = minimax_pos_examined + alt_pos_examined
+      
+        print("Positions examined by minimax:", minimax_pos_examined)
+##        i = 0
+##        v = 0
+##        while minimax_pos_examined[i]:
+##            x = minimax_pos_examined[i]
+##            print("depth", i, ": ", x)
+##            total_pos_examined[i] += x
+##            v += x
+##            i += 1
+##        print("Subtotal: ", v, "\n")
+            
+        print("Positions examined by modified min:", alt_pos_examined)
+##        i = 0
+##        v = 0
+##        while alt_pos_examined[i]:
+##            x = alt_pos_examined[i]
+##            print("depth", i, ": ", x)
+##            total_pos_examined[i] += x
+##            v += x
+##            i += 1
+##        print("Subtotal: ", v, "\n")
+        
+        print("Total positions examined:", total_pos_examined, "\n")
+##        i = 0
+##        v = 0
+##        while total_pos_examined[i]:
+##            x = total_pos_examined[i]
+##            print("depth", i, ": ", x)
+##            v += x
+##            i += 1
+##        print("Total   : ", v, "\n")
+        #
 
         if score == MATE_UPPER:
             print("Checkmate!")

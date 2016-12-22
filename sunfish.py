@@ -20,6 +20,14 @@ MATE_UPPER = 60000 + 8*2700
 QS_LIMIT = 150
 EVAL_ROUGHNESS = 20
 
+#
+BEST_PENALTY = 1
+SECOND_BONUS = 1
+#
+minimax_pos_examined = 0
+alt_pos_examined = 0
+#
+
 # Our board is represented as a 120 character string. The padding allows for
 # fast detection of moves that don't stay within the board.
 A1, H1, A8, H8 = 91, 98, 21, 28
@@ -268,10 +276,14 @@ class Searcher:
         self.tp_move = LRUCache(TABLE_SIZE)
         self.nodes = 0
 
-    def bound(self, pos, gamma, depth, root=True):
+    def bound(self, pos, gamma, maximizing, depth, root=True):
         """ returns r where
                 s(pos) <= r < gamma    if gamma > s(pos)
                 gamma <= r <= s(pos)   if gamma <= s(pos)"""
+
+        global minimax_pos_examined
+        global alt_pos_examined
+        
         self.nodes += 1
 
         # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for calmness, and so there is no reason to keep different depths in the transposition table.
@@ -301,27 +313,48 @@ class Searcher:
         def moves():
             # First try not moving at all
             if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
-                yield None, -self.bound(pos.nullmove(), 1-gamma, depth-3, root=False)
+                yield None, -self.bound(pos.nullmove(), 1-gamma, 1-maximizing, depth-3, root=False)
             # For QSearch we have a different kind of null-move
             if depth == 0:
                 yield None, pos.score
             # Then killer move. We search it twice, but the tp will fix things for us. Note, we don't have to check for legality, since we've already done it before. Also note that in QS the killer must be a capture, otherwise we will be non deterministic.
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, root=False)
+                yield killer, -self.bound(pos.move(killer), 1-gamma, 1-maximizing, depth-1, root=False)
             # Then all the other moves
             for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
-                    yield move, -self.bound(pos.move(move), 1-gamma, depth-1, root=False)
+                    yield move, -self.bound(pos.move(move), 1-gamma, 1-maximizing, depth-1, root=False)
 
         # Run through the moves, shortcutting when possible
-        best = -MATE_UPPER
-        for move, score in moves():
-            best = max(best, score)
-            if best >= gamma:
-                # Save the move for pv construction and killer heuristic
-                self.tp_move[pos] = move
-                break
+
+
+        if maximizing:
+            best = -MATE_UPPER
+            for move, score in moves():
+                minimax_pos_examined += 1
+                
+                best = max(best, score)
+                if best >= gamma:
+                    # Save the move for pv construction and killer heuristic
+                    self.tp_move[pos] = move
+                    break
+
+        else:
+            best = -MATE_UPPER
+            secondbest = -MATE_UPPER
+            for move, score in moves():
+                alt_pos_examined += 1
+                
+                secondbest = max(secondbest, score)
+                if secondbest > best:
+                    secondbest = best
+                    best = score
+                val = max(best - BEST_PENALTY, secondbest - SECOND_BONUS)
+                if val >= gamma:
+                    # Save the move for pv construction and killer heuristic
+                    self.tp_move[pos] = move
+                    break
 
         # Stalemate checking is a bit tricky: Say we failed low, because
         # we can't (legally) move and so the (real) score is -infty.
@@ -364,14 +397,40 @@ class Searcher:
             lower, upper = -MATE_UPPER, MATE_UPPER
             while lower < upper - EVAL_ROUGHNESS:
                 gamma = (lower+upper+1)//2
-                score = self.bound(pos, gamma, depth)
+                score = self.bound(pos, gamma, 1, depth)
+                # Test for debugging search instability
+                if not lower <= score <= upper:
+                    import tools
+                    print(__file__, 'search instability?', lower, upper, 'gamma score', gamma, score, 'depth', depth, 'pos', tools.renderFEN(pos))
                 if score >= gamma:
                     lower = score
                 if score < gamma:
                     upper = score
             # We want to make sure the move to play hasn't been kicked out of the table,
             # So we make another call that must always fail high and thus produce a move.
-            score = self.bound(pos, lower, depth)
+            score = self.bound(pos, lower, 1, depth)
+
+            # Test for debugging tp_score
+            assert score >= lower
+            if self.tp_score.get((pos, depth, True)) is None:
+                print("No score stored?", score)
+                self.tp_score[(pos, depth, True)] = Entry(score, score)
+            assert score == self.tp_score.get((pos, depth, True)).lower
+
+            # Test for debugging tp_move
+            arb_legal_move = lambda: next((m for m in pos.gen_moves() if not any(pos.move(m).value(m1) >= MATE_LOWER for m1 in pos.move(m).gen_moves())), None)
+            if self.tp_move.get(pos) is None:
+                print('No move stored? Score: {}'.format(score))
+                self.tp_move[pos] = arb_legal_move()
+            else:
+                move = self.tp_move.get(pos)
+                pos1 = pos.move(move)
+                if any(pos1.value(m) >= MATE_LOWER for m in pos1.gen_moves()):
+                    import tools
+                    print('Returned illegal move? Score: {}'.format(score),
+                            'move', tools.mrender(pos, move),
+                            'pos', tools.renderFEN(pos))
+                    self.tp_move[pos] = arb_legal_move()
 
             # Yield so the user may inspect the search
             yield
@@ -412,14 +471,20 @@ def render(i):
 
 def print_pos(pos):
     print()
-    uni_pieces = {'R':'♜', 'N':'♞', 'B':'♝', 'Q':'♛', 'K':'♚', 'P':'♟',
-                  'r':'♖', 'n':'♘', 'b':'♗', 'q':'♕', 'k':'♔', 'p':'♙', '.':'·'}
+##    uni_pieces = {'R':'♜', 'N':'♞', 'B':'♝', 'Q':'♛', 'K':'♚', 'P':'♟',
+##                  'r':'♖', 'n':'♘', 'b':'♗', 'q':'♕', 'k':'♔', 'p':'♙', '.':'·'}
+    uni_pieces = {'R':'R', 'N':'N', 'B':'B', 'Q':'Q', 'K':'K', 'P':'P',
+                  'r':'r', 'n':'n', 'b':'b', 'q':'q', 'k':'k', 'p':'p', '.':'·'}
     for i, row in enumerate(pos.board.split()):
         print(' ', 8-i, ' '.join(uni_pieces.get(p, p) for p in row))
     print('    a b c d e f g h \n\n')
 
 
 def main():
+    #
+    global minimax_pos_examined
+    global alt_pos_examined
+    #
     pos = Position(initial, 0, (True,True), (True,True), 0, 0)
     searcher = Searcher()
     while True:
@@ -449,7 +514,7 @@ def main():
             break
 
         # Fire up the engine to look for a move.
-        
+                
         #
         cstart = time.clock()
         tstart = time.time()
@@ -494,6 +559,7 @@ def main():
 ##        print("Total   : ", v, "\n")
         #
 
+        print("score:", score)
         if score == MATE_UPPER:
             print("Checkmate!")
 

@@ -413,7 +413,7 @@ def quickmate(f, min_depth=1):
         pos = tools.parseFEN(line)
         searcher = sunfish.Searcher()
         for d in range(min_depth, 99):
-            score = searcher.bound(pos, sunfish.MATE_LOWER, d, root=True)
+            score = searcher.bound(pos, sunfish.MATE_LOWER, 1, d, root=True)
             if score >= sunfish.MATE_LOWER:
                 #print(tools.pv(searcher, 0, pos))
                 break

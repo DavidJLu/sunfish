@@ -20,13 +20,9 @@ MATE_UPPER = 60000 + 8*2700
 QS_LIMIT = 150
 EVAL_ROUGHNESS = 20
 
-#
-BEST_PENALTY = 1
-SECOND_BONUS = 1
-#
+
 minimax_pos_examined = 0
 alt_pos_examined = 0
-#
 
 # Our board is represented as a 120 character string. The padding allows for
 # fast detection of moves that don't stay within the board.
@@ -342,6 +338,7 @@ class Searcher:
 
         else:
             best = -MATE_UPPER
+            bestmove = pos.nullmove()
             secondbest = -MATE_UPPER
             for move, score in moves():
                 alt_pos_examined += 1
@@ -350,10 +347,11 @@ class Searcher:
                 if secondbest > best:
                     secondbest = best
                     best = score
+                    bestmove = move
                 val = max(best - BEST_PENALTY, secondbest - SECOND_BONUS)
                 if val >= gamma:
                     # Save the move for pv construction and killer heuristic
-                    self.tp_move[pos] = move
+                    self.tp_move[pos] = bestmove
                     break
 
         # Stalemate checking is a bit tricky: Say we failed low, because

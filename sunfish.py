@@ -20,6 +20,8 @@ MATE_UPPER = 60000 + 8*2700
 QS_LIMIT = 150
 EVAL_ROUGHNESS = 20
 
+BEST_PENALTY = 0
+SECOND_BONUS = 0
 
 minimax_pos_examined = 0
 alt_pos_examined = 0
@@ -348,7 +350,7 @@ class Searcher:
                     secondbest = best
                     best = score
                     bestmove = move
-                val = max(best - BEST_PENALTY, secondbest - SECOND_BONUS)
+                val = max(best - BEST_PENALTY, secondbest + SECOND_BONUS)
                 if val >= gamma:
                     # Save the move for pv construction and killer heuristic
                     self.tp_move[pos] = bestmove
@@ -381,7 +383,7 @@ class Searcher:
     # secs over maxn is a breaking change. Can we do this?
     # I guess I could send a pull request to deep pink
     # Why include secs at all?
-    def _search(self, pos):
+    def _search(self, pos, maximizing):
         """ Iterative deepening MTD-bi search """
         self.nodes = 0
 
@@ -395,7 +397,7 @@ class Searcher:
             lower, upper = -MATE_UPPER, MATE_UPPER
             while lower < upper - EVAL_ROUGHNESS:
                 gamma = (lower+upper+1)//2
-                score = self.bound(pos, gamma, 1, depth)
+                score = self.bound(pos, gamma, maximizing, depth)
                 # Test for debugging search instability
                 if not lower <= score <= upper:
                     import tools
@@ -433,13 +435,14 @@ class Searcher:
             # Yield so the user may inspect the search
             yield
 
-    def search(self, pos, secs):
+    def search(self, pos, maximizing, secs):
         start = time.time()
-        for _ in self._search(pos):
+        for _ in self._search(pos, maximizing):
             if time.time() - start > secs:
                 break
         # If the game hasn't finished we can retrieve our move from the
         # transposition table.
+        
         return self.tp_move.get(pos), self.tp_score.get((pos, self.depth, True)).lower
 
 
@@ -517,7 +520,7 @@ def main():
         cstart = time.clock()
         tstart = time.time()
 
-        move, score = searcher.search(pos, secs=2)
+        move, score = searcher.search(pos, 1, secs=2)
         
         print(time.clock() - cstart, "seconds process time")
         print(time.time() - tstart, "seconds real time\n")
@@ -555,11 +558,17 @@ def main():
 ##            v += x
 ##            i += 1
 ##        print("Total   : ", v, "\n")
-        #
 
+        print(BEST_PENALTY, SECOND_BONUS)
+        
         print("score:", score)
         if score == MATE_UPPER:
             print("Checkmate!")
+
+        ##bad code##
+        null, score = searcher.search(pos.move(move), 0, secs=2)
+        print("minimizing player's score:", score)
+        ##bad code##
 
         # The black player moves from a rotated position, so we have to
         # 'back rotate' the move before printing it.

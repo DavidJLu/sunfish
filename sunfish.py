@@ -20,8 +20,8 @@ MATE_UPPER = 60000 + 8*2700
 QS_LIMIT = 150
 EVAL_ROUGHNESS = 20
 
-BEST_PENALTY = 0
-SECOND_BONUS = 0
+BEST_PENALTY = 5
+SECOND_BONUS = 5
 
 minimax_pos_examined = 0
 alt_pos_examined = 0
@@ -272,6 +272,7 @@ class Searcher:
     def __init__(self):
         self.tp_score = LRUCache(TABLE_SIZE)
         self.tp_move = LRUCache(TABLE_SIZE)
+        self.tp_secondmove = LRUCache(TABLE_SIZE)
         self.nodes = 0
 
     def bound(self, pos, gamma, maximizing, depth, root=True):
@@ -319,6 +320,12 @@ class Searcher:
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
                 yield killer, -self.bound(pos.move(killer), 1-gamma, 1-maximizing, depth-1, root=False)
+
+            if maximizing == 0:
+                killer = self.tp_secondmove.get(pos)
+                if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
+                    yield killer, -self.bound(pos.move(killer), 1-gamma, 1-maximizing, depth-1, root=False)
+            
             # Then all the other moves
             for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
@@ -340,8 +347,9 @@ class Searcher:
 
         else:
             best = -MATE_UPPER
-            bestmove = pos.nullmove()
+            bestmove = None
             secondbest = -MATE_UPPER
+            secondmove = None
             for move, score in moves():
                 alt_pos_examined += 1
                 
@@ -349,11 +357,13 @@ class Searcher:
                 if secondbest > best:
                     secondbest = best
                     best = score
+                    secondmove = bestmove
                     bestmove = move
                 val = max(best - BEST_PENALTY, secondbest + SECOND_BONUS)
                 if val >= gamma:
                     # Save the move for pv construction and killer heuristic
                     self.tp_move[pos] = bestmove
+                    self.tp_secondmove[pos] = secondmove
                     break
 
         # Stalemate checking is a bit tricky: Say we failed low, because
@@ -565,15 +575,29 @@ def main():
         if score == MATE_UPPER:
             print("Checkmate!")
 
-        ##bad code##
-        null, score = searcher.search(pos.move(move), 0, secs=2)
-        print("minimizing player's score:", score)
-        ##bad code##
-
         # The black player moves from a rotated position, so we have to
         # 'back rotate' the move before printing it.
         print("My move:", render(119-move[0]) + render(119-move[1]))
         pos = pos.move(move)
+
+##        cstart = time.clock()
+##        tstart = time.time()
+##
+##        ##bad code##
+##        null, score = searcher.search(pos.move(move), 0, secs=2)
+##        ##bad code##
+##
+##        print(time.clock() - cstart, "seconds process time")
+##        print(time.time() - tstart, "seconds real time\n")
+##
+##        total_pos_examined = minimax_pos_examined + alt_pos_examined
+##      
+##        print("Positions examined by minimax:", minimax_pos_examined)
+##        print("Positions examined by modified min:", alt_pos_examined)
+##        print("Total positions examined:", total_pos_examined, "\n")
+##        print("minimizing player's score:", score)
+
+
 
 
 if __name__ == '__main__':
